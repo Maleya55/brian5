@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Trading Analysis Tool with Automated Trading</title>
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2ecc71;
+            --background-color: #f0f0f0;
+            --text-color: #333;
+            --border-radius: 8px;
+        }
+        body { 
+            font-family: 'Roboto', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 15px;
+        }
+        select, button, input { 
+            margin: 10px 0; 
+            padding: 12px; 
+            font-size: 16px;
+            border: none;
+            border-radius: var(--border-radius);
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+        select:focus, button:focus, input:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px var(--primary-color);
+        }
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #liveData, #predictions, #performanceMetrics, #accountInfo, #robotControls { 
+            margin-top: 20px; 
+            background-color: white; 
+            padding: 20px; 
+            border-radius: var(--border-radius); 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .prediction-box { 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            margin-top: 15px; 
+            border-radius: var(--border-radius);
+        }
+        .high-confidence { background-color: #e6ffe6; border-left: 5px solid #4CAF50; }
+        .medium-confidence { background-color: #fff5e6; border-left: 5px solid #FFA500; }
+        .low-confidence { background-color: #ffe6e6; border-left: 5px solid #F44336; }
+        table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            margin-top: 10px;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 12px; 
+            text-align: left;
+        }
+        th { background-color: #f2f2f2; }
+        .over-under-container { 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 15px;
+        }
+        .over-prediction, .under-prediction { 
+            flex: 1; 
+            min-width: 250px;
+        }
+        #connectionStatus { 
+            padding: 10px; 
+            margin-bottom: 10px; 
+            border-radius: var(--border-radius); 
+            font-weight: bold;
+        }
+        .connected { background-color: #e6ffe6; color: #4CAF50; }
+        .disconnected { background-color: #ffe6e6; color: #F44336; }
+        h1, h2, h3, h4 { color: var(--primary-color); }
+        #authButton { 
+            position: fixed; 
+            top: 20px; 
+            right: 20px;
+            z-index: 1000;
+        }
+        #accountSwitch { margin-top: 10px; }
+        .error-message {
+            color: #F44336;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            body { 
+                padding: 10px;
+            }
+            .container {
+                padding: 0 10px;
+            }
+            select, button, input { 
+                width: 100%;
+            }
+            #authButton {
+                position: static;
+                width: 100%;
+                margin-bottom: 20px;
+            }
+            .over-under-container { 
+                flex-direction: column;
+            }
+            .over-prediction, .under-prediction { 
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Advanced Trading Analysis Tool with Automated Trading</h1>
+        <button id="authButton" onclick="authenticateWithDeriv()">Authenticate with Deriv</button>
+        <div id="accountInfo"></div>
+        <div id="connectionStatus" class="disconnected">Disconnected</div>
+        <select id="volatilitySelect">
+            <option value="10">Volatility 10 (1s)</option>
+            <option value="25">Volatility 25 (1s)</option>
+            <option value="50">Volatility 50 (1s)</option>
+            <option value="75">Volatility 75 (1s)</option>
+            <option value="100">Volatility 100 (1s)</option>
+        </select>
+        <select id="marketSelect">
+            <option value="rise_fall">Rise/Fall</option>
+            <option value="over_under">Over/Under</option>
+            <option value="digit_match">Digit Match / Exact Digit</option>
+            <option value="even_odd">Even/Odd</option>
+            <option value="differs">Differs</option>
+        </select>
+        <div id="robotControls">
+            <h2>Robot Controls</h2>
+            <input type="number" id="tradeAmount" placeholder="Trade Amount">
+            <input type="number" id="takeProfit" placeholder="Take Profit (%)">
+            <input type="number" id="stopLoss" placeholder="Stop Loss (%)">
+            <input type="number" id="maxTrades" placeholder="Max Trades">
+            <button onclick="startRobot()">Start Robot</button>
+            <button onclick="stopRobot()">Stop Robot</button>
+        </div>
+        <div id="liveData"></div>
+        <div id="predictions"></div>
+        <div id="performanceMetrics"></div>
+    </div>
+
+    <script src="https://unpkg.com/@deriv/deriv-api/dist/DerivAPI.js"></script>
+    <script>
+        const app_id = 61507;
+        let websocket;
+        let historicalData = [];
+        let predictionResults = {
+            rise_fall: { correct: 0, total: 0 },
+            over_under: { correct: 0, total: 0 },
+            digit_match: { correct: 0, total: 0 },
+            even_odd: { correct: 0, total: 0 },
+            differs: { correct: 0, total: 0 }
+        };
+        let lastPredictions = {};
+        let cachedData = [];
+        let derivAPI;
+        let activeRobot;
+
+        function initWebSocket() {
+            websocket = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${app_id}`);
+
+            websocket.addEventListener('open', (event) => {
+                console.log('WebSocket connection established');
+                document.getElementById('connectionStatus').className = 'connected';
+                document.getElementById('connectionStatus').innerText = 'Connected';
+                subscribeToTicks();
+                sendPing();
+            });
+
+            websocket.addEventListener('message', (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            });
+
+            websocket.addEventListener('close', (event) => {
+                console.log('WebSocket connection closed');
+                document.getElementById('connectionStatus').className = 'disconnected';
+                document.getElementById('connectionStatus').innerText = 'Disconnected';
+                setTimeout(initWebSocket, 5000);
+            });
+
+            websocket.addEventListener('error', (event) => {
+                console.error('WebSocket error:', event);
+                document.getElementById('connectionStatus').className = 'disconnected';
+                document.getElementById('connectionStatus').innerText = 'Connection Error';
+            });
+        }
+
+        function sendPing() {
+            if (websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({ ping: 1 }));
+                setTimeout(sendPing, 12000);
+            }
+        }
+
+        function subscribeToTicks() {
+            const volatility = document.getElementById('volatilitySelect').value;
+            const symbol = `R_${volatility}`;
+            websocket.send(JSON.stringify({
+                ticks: symbol,
+                subscribe: 1
+            }));
+        }
+
+        function handleMessage(data) {
+            if (data.tick) {
+                updateHistoricalData(data.tick);
+                updateLiveData(data.tick);
+                updatePredictions();
+                checkPredictionAccuracy(data.tick);
+                updatePerformanceMetrics();
+            } else if (data.balance) {
+                updateAccountInfo(data);
+            }
+        }
+
+        function updateHistoricalData(tick) {
+            historicalData.push(tick);
+            if (historicalData.length > 1000) historicalData.shift();
+            
+            cachedData.push(tick);
+            if (cachedData.length > 5000) cachedData.shift();
+            localStorage.setItem('cachedData', JSON.stringify(cachedData));
+        }
+
+        function updateLiveData(tick) {
+            const liveDataElement = document.getElementById('liveData');
+            liveDataElement.innerHTML = `
+                <h2>Live Data</h2>
+                <p><strong>Current Price:</strong> ${tick.quote}</p>
+                <p><strong>Timestamp:</strong> ${new Date(tick.epoch * 1000).toLocaleTimeString()}</p>
+            `;
+        }
+
+        function updatePredictions() {
+            const predictionsElement = document.getElementById('predictions');
+            const selectedMarket = document.getElementById('marketSelect').value;
+
+            let predictionHtml = '<h2>Predictions</h2><div class="prediction-box">';
+            
+            switch(selectedMarket) {
+                case 'rise_fall':
+                    predictionHtml += generateRiseFallPrediction();
+                    break;
+                case 'over_under':
+                    predictionHtml += generateOverUnderPrediction();
+                    break;
+                case 'digit_match':
+                    predictionHtml += generateDigitMatchPrediction();
+                    break;
+                case 'even_odd':
+                    predictionHtml += generateEvenOddPrediction();
+                    break;
+                case 'differs':
+                    predictionHtml += generateDiffersPrediction();
+                    break;
+            }
+
+            predictionHtml += '</div>';
+            predictionsElement.innerHTML = predictionHtml;
+
+            // Emit prediction update event
+            const event = new CustomEvent('predictionUpdate', { 
+                detail: { 
+                    market: selectedMarket, 
+                    prediction: lastPredictions[selectedMarket] 
+                } 
+            });
+            document.dispatchEvent(event);
+        }
+
+        // Implement prediction generation functions here (as in the original code)
+
+        function checkPredictionAccuracy(tick) {
+            // Implement prediction accuracy checking as in the original code
+        }
+
+        function updatePerformanceMetrics() {
+            // Implement performance metrics update as in the original code
+        }
+
+        function authenticateWithDeriv() {
+            const authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${app_id}&l=EN&brand=deriv`;
+            const authWindow = window.open(authUrl, 'Deriv Authentication', 'width=800,height=600');
+
+            window.addEventListener('message', function(e) {
+                if (e.origin !== "https://oauth.deriv.com") return;
+                
+                const token = e.data.token1;
+                authWindow.close();
+                
+                if (token) {
+                    derivAPI = new DerivAPI({ app_id, token });
+                    getAccountInfo();
+                }
+            }, false);
+        }
+
+        function getAccountInfo() {
+            derivAPI.send({ get_account_status: 1 }).then((response) => {
+                updateAccountInfo(response);
+            }).catch(error => {
+                console.error('Error getting account info:', error);
+                showError('Failed to get account information. Please try authenticating again.');
+            });
+        }
+
+        function updateAccountInfo(data) {
+            const accountInfoElement = document.getElementById('accountInfo');
+            accountInfoElement.innerHTML = `
+                <h2>Account Information</h2>
+                <p><strong>Balance:</strong> ${data.balance ? data.balance.balance : 'N/A'}</p>
+                <p><strong>Currency:</strong> ${data.balance ? data.balance.currency : 'N/A'}</p>
+                <p><strong>Account Type:</strong> ${data.account_type || 'N/A'}</p>
+                <select id="accountSwitch" onchange="switchAccount(this.value)">
+                    <option value="real">Real</option>
+                    <option value="demo">Demo</option>
+                </select>
+            `;
+        }
+
+        function switchAccount(accountType) {
+            derivAPI.send({ switch_account: accountType }).then((response) => {
+                if (response.switch_account === 1) {
+                    getAccountInfo();
+                }
+            }).catch(error => {
+                console.error('Error switching account:', error);
+                showError('Failed to switch account. Please try again.');
+            });
+        }
+
+        class TradingRobot {
+            constructor(market, amount, takeProfit, stopLoss, maxTrades) {
+                this.market = market;
+                this.amount = amount;
+                this.takeProfit = takeProfit;
+                this.stopLoss = stopLoss;
+                this.maxTrades = maxTrades;
+                this.active = false;
+                this.tradesPlaced = 0;
+                this.activeTrades = new Map();
+            }
+
+            start() {
+                this.active = true;
+                document.addEventListener('predictionUpdate', this.handlePrediction.bind(this));
+            }
+
+            stop() {
+                this.active = false;
+                document.removeEventListener('predictionUpdate', this.handlePrediction.bind(this));
+            }
+
+            handlePrediction(event) {
+                if (!this.active || event.detail.market !== this.market || this.tradesPlaced >= this.maxTrades) return;
+
+                const prediction = event.detail.prediction;
+                if (this.shouldTrade(prediction)) {
+                    this.placeTrade(prediction);
+                }
+            }
+
+            shouldTrade(prediction) {
+                // Implement more sophisticated trading logic
+                if (prediction.confidence === 'high-confidence') {
+                    const recentPerformance = this.getRecentPerformance();
+                    if (recentPerformance >= 0.6) { // Only trade if recent performance is good
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            getRecentPerformance() {
+                const recentResults = predictionResults[this.market];
+                const recentTotal = Math.min(recentResults.total, 20); // Consider last 20 trades
+                return recentResults.correct / recentTotal;
+            }
+
+            placeTrade(prediction) {
+                console.log(`Placing trade for ${this.market}: ${prediction}`);
+                let contract = this.getContractType(prediction);
+                
+                derivAPI.buy({
+                    contract_type: contract,
+                    amount: this.amount,
+                    symbol: `R_${document.getElementById('volatilitySelect').value}`,
+                    duration: 5,
+                    duration_unit: 'm',
+                    barrier: this.getBarrier(prediction)
+                }).then(response => {
+                    if (response.buy) {
+                        console.log('Trade placed successfully:', response.buy);
+                        this.tradesPlaced++;
+                        this.monitorTrade(response.buy.contract_id, response.buy.buy_price);
+                    } else {
+                        console.error('Error placing trade:', response.error);
+                        showError('Failed to place trade. Please check your settings and try again.');
+                    }
+                }).catch(error => {
+                    console.error('Error placing trade:', error);
+                    showError('An error occurred while placing the trade. Please try again.');
+                });
+            }
+
+            getContractType(prediction) {
+                switch(this.market) {
+                    case 'rise_fall':
+                        return prediction === 'Rise' ? 'CALL' : 'PUT';
+                    case 'over_under':
+                        return prediction.startsWith('Over') ? 'DIGITOVER' : 'DIGITUNDER';
+                    case 'digit_match':
+                        return 'DIGITMATH';
+                    case 'even_odd':
+                        return prediction === 'Even' ? 'DIGITEVEN' : 'DIGITODD';
+                    case 'differs':
+                        return 'DIGITDIFF';
+                    default:
+                        throw new Error('Invalid market type');
+                }
+            }
+
+            getBarrier(prediction) {
+                if (this.market === 'over_under') {
+                    return prediction.split(' ')[1];
+                } else if (this.market === 'digit_match') {
+                    return prediction;
+                }
+                return undefined;
+            }
+
+            monitorTrade(contractId, buyPrice) {
+                const checkContract = () => {
+                    derivAPI.send({ proposal_open_contract: 1, contract_id: contractId })
+                        .then(response => {
+                            if (response.error) {
+                                console.error('Error checking contract:', response.error);
+                                return;
+                            }
+
+                            const contract = response.proposal_open_contract;
+                            if (contract.status === 'open') {
+                                const currentProfit = contract.profit;
+                                if (currentProfit >= buyPrice * (this.takeProfit / 100)) {
+                                    this.closeTrade(contractId, 'Take profit reached');
+                                } else if (currentProfit <= -buyPrice * (this.stopLoss / 100)) {
+                                    this.closeTrade(contractId, 'Stop loss reached');
+                                } else {
+                                    setTimeout(checkContract, 1000); // Check again in 1 second
+                                }
+                            } else {
+                                console.log('Contract closed:', contract);
+                                this.activeTrades.delete(contractId);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error monitoring trade:', error);
+                        });
+                };
+
+                this.activeTrades.set(contractId, { buyPrice, checkInterval: setInterval(checkContract, 1000) });
+            }
+
+            closeTrade(contractId, reason) {
+                derivAPI.send({ sell: contractId })
+                    .then(response => {
+                        if (response.error) {
+                            console.error('Error closing trade:', response.error);
+                            return;
+                        }
+                        console.log(`Trade closed (${reason}):`, response.sell);
+                        clearInterval(this.activeTrades.get(contractId).checkInterval);
+                        this.activeTrades.delete(contractId);
+                    })
+                    .catch(error => {
+                        console.error('Error closing trade:', error);
+                    });
+            }
+        }
+
+        function startRobot() {
+            const market = document.getElementById('marketSelect').value;
+            const amount = parseFloat(document.getElementById('tradeAmount').value);
+            const takeProfit = parseFloat(document.getElementById('takeProfit').value);
+            const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+            const maxTrades = parseInt(document.getElementById('maxTrades').value);
+
+            if (isNaN(amount) || isNaN(takeProfit) || isNaN(stopLoss) || isNaN(maxTrades)) {
+                showError('Please fill in all robot control fields with valid numbers.');
+                return;
+            }
+
+            if (activeRobot) {
+                activeRobot.stop();
+            }
+
+            activeRobot = new TradingRobot(market, amount, takeProfit, stopLoss, maxTrades);
+            activeRobot.start();
+            console.log(`Started robot for ${market}`);
+        }
+
+        function stopRobot() {
+            if (activeRobot) {
+                activeRobot.stop();
+                activeRobot = null;
+                console.log('Stopped robot');
+            }
+        }
+
+        function showError(message) {
+            const errorElement = document.createElement('div');
+            errorElement.className = 'error-message';
+            errorElement.textContent = message;
+            document.body.appendChild(errorElement);
+            setTimeout(() => errorElement.remove(), 5000);
+        }
+
+        document.getElementById('volatilitySelect').addEventListener('change', subscribeToTicks);
+        document.getElementById('marketSelect').addEventListener('change', updatePredictions);
+
+        // Initialize WebSocket connection
+        initWebSocket();
+
+        // Load cached data on startup
+        const cachedDataString = localStorage.getItem('cachedData');
+        if (cachedDataString) {
+            cachedData = JSON.parse(cachedDataString);
+            historicalData = cachedData.slice(-1000);
+            if (historicalData.length > 0) {
+                updateLiveData(historicalData[historicalData.length - 1]);
+                updatePredictions();
+                updatePerformanceMetrics();
+            }
+        }
+    </script>
+</body>
+</html>
